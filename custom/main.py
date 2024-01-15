@@ -24,6 +24,7 @@ import os
 from sklearn.linear_model import Ridge
 import pickle
 from sklearn.preprocessing import MinMaxScaler
+from pandas.tseries.offsets import BDay
 
 import json
 import sys
@@ -593,18 +594,18 @@ def _log(fpath, msg, lvl='INFO'):
 
 
 if __name__ == '__main__':
-    print('Sys path:', sys.path)
+    # print('Sys path:', sys.path)
     
     date_params = {
-        'train_start': '2017-03-21',
-        'train_end': '2023-01-01',
-        'test_start': '2023-01-01',
-        'test_end': '2023-03-01'
-
         # 'train_start': '2017-03-21',
-        # 'train_end': str(datetime.today())[:10],
-        # 'test_start': str(datetime.today())[:10],
-        # 'test_end': str(datetime.today() + BDay(10))[:10],
+        # 'train_end': '2023-01-01',
+        # 'test_start': '2023-01-01',
+        # 'test_end': '2023-03-01'
+
+        'train_start': '2017-03-21',
+        'train_end': str(datetime.today())[:10],
+        'test_start': str(datetime.today())[:10],
+        'test_end': str(datetime.today() + BDay(10))[:10],
     }
     
     ds = str(datetime.today())[:10]

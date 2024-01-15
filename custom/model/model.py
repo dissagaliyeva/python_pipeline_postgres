@@ -123,14 +123,14 @@ def pretrain_model(model_name, target_feature, results_folder=None, variance=Non
     train, test = results['train'], results['test']
 
     # check if model exists
-    # if os.path.exists(model_name):
-    #     log(log_path, f'Task 3: Loading existing model {model_name}...')
+    if os.path.exists(model_name):
+        # log(log_path, f'Task 3: Loading existing model {model_name}...')
 
-    #     # load existing model
-    #     model = xgb.Booster()
-    #     model.load_model(model_name)
+        # load existing model
+        model = xgb.Booster()
+        model.load_model(model_name)
 
-    #     return model
+        return model
 
         # otherwise, pretrain the model from scratch
     fmt = '%Y-%m-%d'

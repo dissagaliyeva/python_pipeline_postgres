@@ -1,0 +1,12 @@
+numpy
+pandas
+xgboost
+scikit-learn
+billiard
+matplotlib
+tsfresh
+plotly
+graphviz
+spgci
+kaleido
+openpyxl
