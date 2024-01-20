@@ -215,46 +215,52 @@ def _train_ridge(today, z_values=[10**4,  10**5, 10**6, 10**7, 10**8], ti=None):
     test_start, test_end = ti['test_start'], ti['test_end']
     
     # ========================================= DATA PREPARATION PIPELINE =========================================
+    path = os.path.join(ti['save_path'], 'pickles', 'tsfresh_data')
     
-    df = pd.read_csv(f'data/data_{today}.csv')
+    if os.path.exists(path):
+        file = pickle.load(open(path, 'rb'))
+        features_filtered, target = file['features_filtered'], file['target']
     
-    assert isinstance(df, pd.DataFrame) and len(df) > 0, 'The dataset does not exist! [@main.py, L:220]'
-    
-    # convert dates
-    df.pricing_date = pd.to_datetime(df.pricing_date)
-    df.set_index('pricing_date', inplace=True)
-    
-    # slice from train_start until test_end
-    df = df[(df.index >= ti['train_start']) & (df.index < ti['test_end'])]
-    df.interpolate(method='linear', inplace=True)
-    df.fillna(0, inplace=True)
-    
-    features, target = df.drop(columns=ti['target_col']), df[ti['target_col']]
-    features.reset_index(inplace=True)
-    
-    # target.fillna(0, inplace=True)
-    # features.interpolate(inplace=True)
-    
-    # interpolate values (interpolation does not 'guess' the future values, they still end up being NaN)
-    # features.interpolate(inplace=True)
-    # target.interpolate(inplace=True)
-    # target.fillna(inplace=True)     # otherwise breaks the ridge implementation
-    
-    # extract relevant features that were already ran (saves a lot of time)
-    kind_fc_params = json.load(open('data/kind_fc_params.json'))
-    features_filtered = tsfresh.extract_features(features, column_sort='pricing_date', column_id='pricing_date', kind_to_fc_parameters=kind_fc_params, n_jobs=4)
-    impute(features_filtered)
-    
-    # save tsfresh data for future reference
-    pickle_loc = f'{save_path}/pickles'
-    pickle_file = f'{pickle_loc}/tsfresh_data'
+    else:
+        df = pd.read_csv(f'data/data_{today}.csv')
+        
+        assert isinstance(df, pd.DataFrame) and len(df) > 0, 'The dataset does not exist! [@main.py, L:220]'
+        
+        # convert dates
+        df.pricing_date = pd.to_datetime(df.pricing_date)
+        df.set_index('pricing_date', inplace=True)
+        
+        # slice from train_start until test_end
+        df = df[(df.index >= ti['train_start']) & (df.index < ti['test_end'])]
+        df.interpolate(method='linear', inplace=True)
+        df.fillna(0, inplace=True)
+        
+        features, target = df.drop(columns=ti['target_col']), df[ti['target_col']]
+        features.reset_index(inplace=True)
+        
+        # target.fillna(0, inplace=True)
+        # features.interpolate(inplace=True)
+        
+        # interpolate values (interpolation does not 'guess' the future values, they still end up being NaN)
+        # features.interpolate(inplace=True)
+        # target.interpolate(inplace=True)
+        # target.fillna(inplace=True)     # otherwise breaks the ridge implementation
+        
+        # extract relevant features that were already ran (saves a lot of time)
+        kind_fc_params = json.load(open('data/kind_fc_params.json'))
+        features_filtered = tsfresh.extract_features(features, column_sort='pricing_date', column_id='pricing_date', kind_to_fc_parameters=kind_fc_params, n_jobs=4)
+        impute(features_filtered)
+        
+        # save tsfresh data for future reference
+        pickle_loc = f'{save_path}/pickles'
+        pickle_file = f'{pickle_loc}/tsfresh_data'
 
-    # create a folder to store results
-    if not os.path.exists(pickle_loc): os.mkdir(pickle_loc)
+        # create a folder to store results
+        if not os.path.exists(pickle_loc): os.mkdir(pickle_loc)
 
-    # store results
-    with open(pickle_file, 'wb') as fout:
-        pickle.dump({'features_filtered': features_filtered, 'y': target}, fout, pickle.HIGHEST_PROTOCOL)
+        # store results
+        with open(pickle_file, 'wb') as fout:
+            pickle.dump({'features_filtered': features_filtered, 'y': target}, fout, pickle.HIGHEST_PROTOCOL)
     
     
     def train(z, features, target, test_start):
@@ -616,11 +622,11 @@ if __name__ == '__main__':
     
     # ================================== XGBOOST IMPLEMENTATION ==================================
     
-    prepare_data = _prepare_data(ds, _log, data_path=check_data, model_type='xgboost', ti=ti)
+    # prepare_data = _prepare_data(ds, _log, data_path=check_data, model_type='xgboost', ti=ti)
     
-    pretrain_model = _pretrain_model(ds, _log, ti=ti)
+    # pretrain_model = _pretrain_model(ds, _log, ti=ti)
     
-    get_predictions = _get_predictions(ds, _log, ti=ti)
+    # get_predictions = _get_predictions(ds, _log, ti=ti)
     
     
     # ================================== VIRTUE IMPLEMENTATION ==================================

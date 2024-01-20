@@ -327,5 +327,19 @@ def get_predictions(data, columns, target_feature, model, results_folder, varian
     results_df.to_csv(f'{results_folder}/results-for-{test_start}-{test_end}.csv')
     show_results(results_df, f'{results_folder}/daily_pnl-for-{test_start}-{test_end}.png')
     show_plot(results_df, f'{results_folder}/plot.png')
+    
+    # plot trees: 0th, middle and last
+    fig, ax = plt.subplots(figsize=(30, 20))
+    xgb.plot_tree(model, num_trees=0, ax=ax)
+    fig.savefig(f'{results_folder}/tree_0.png')
+    
+    
+    fig, ax = plt.subplots(figsize=(30, 20))
+    xgb.plot_tree(model, num_trees=len(model.get_dump()) // 2, ax=ax)
+    fig.savefig(f'{results_folder}/tree_middle.png')
+    
+    fig, ax = plt.subplots(figsize=(30, 20))
+    xgb.plot_tree(model, num_trees=len(model.get_dump()) - 1, ax=ax)
+    fig.savefig(f'{results_folder}/tree_last.png')
 
  
