@@ -86,7 +86,7 @@ def non_consecutive_days(df, column='F380 M2/M3'):
     return str(df[df['consec_count'] == 1].index.max())[:10]
 
 
-def _prepare_data(today, log, data_path, model_type, ti):
+def _prepare_data(today, log, data_path, model_type, action='all_columns', ti=None):
     log_path, save_path, target = ti['log_path'], ti['save_path'], ti['target_col']
     train_start, train_end, test_start, test_end = ti['train_start'], ti['train_end'], ti['test_start'], ti['test_end']
     
@@ -96,12 +96,6 @@ def _prepare_data(today, log, data_path, model_type, ti):
     data = pd.read_csv(data_path)
     data.pricing_date = pd.to_datetime(data.pricing_date)
     data.set_index('pricing_date', inplace=True)
-    print('data @83:', data)
-    
-    print('non consecutive:', non_consecutive_days(data[[target]]))
-    
-    # slice the dataset
-    # data = data[data.index < non_consecutive_days(data[[target]])]
     data.interpolate(method='linear', inplace=True)
     
     data = data[(data.index >= train_start) & (data.index <= test_end)]
@@ -112,9 +106,10 @@ def _prepare_data(today, log, data_path, model_type, ti):
     # data = data.iloc[5:, :]
     
     log(log_path, f'Slicing the data to start from {train_start} and end with {test_end} dates.')
-
-    print('data @93:\n', data)
-
+    
+    # store original target 
+    ti['orig_target'] = data[target]
+    
     # drop missing columns
     old_shape = data.shape[0]
     data.dropna(inplace=True)
@@ -130,43 +125,7 @@ def _prepare_data(today, log, data_path, model_type, ti):
     data = add_time_features(data, log=log, log_path=log_path)
     
     if model_type == 'xgboost':
-        # drop target column
-        data.drop(columns=target, inplace=True)
-    
-        print('data @109:\n', data)
-
-        # get columns with variance bigger than the specified variance (default=0.2)
-        columns = drop_low_variance(data, test_start, log, log_path, test_end, var=variance)
-        # columns = list(data.columns)
-        print('columns:', columns)
-        log(log_path, f'Selected {len(columns)} with variance={variance}: {columns}.')
-
-        # normalize data
-        train, test = data.loc[:test_start, :][columns], data.loc[test_start:, :][columns]
-        feature_scaler = MinMaxScaler().fit(train)
-
-        train = pd.DataFrame(feature_scaler.transform(train), index=train.index, columns=train.columns)
-        test = pd.DataFrame(feature_scaler.transform(test), index=test.index, columns=test.columns)
-
-        # final log
-        log(log_path, f'Task 2: Completed. Returning data, columns, and TargetFeature class instance.')
-
-        # save current state in a pickle
-        pickle_loc = f'{results_folder}/pickles'
-        pickle_file = f'{pickle_loc}/results_variance={variance}'
-        
-        print('PICKLE FILE CREATED:', pickle_file)
-
-        # create a folder to store results
-        if not os.path.exists(pickle_loc): os.mkdir(pickle_loc)
-
-        # store results
-        with open(pickle_file, 'wb') as fout:
-            pickle.dump({'data': data, 'columns': columns, 'target_feature': target_feature,
-                        'test_end': test_end, 'train': train, 'test': test, 'feature_scaler': feature_scaler},
-                        fout, pickle.HIGHEST_PROTOCOL)
-
-        return pickle_file
+        return get_data(data, target, test_start, log, log_path, test_end, action, variance, results_folder, target_feature, ti=ti)
     
     # else:
         # features, targets = data.drop(columns=target), data[target]
@@ -192,22 +151,183 @@ def _prepare_data(today, log, data_path, model_type, ti):
         # return pickle_file
 
 
+def get_data(data, target, test_start, log, log_path, test_end, action, variance, results_folder, target_feature, message='', ti=None):
+    # drop target column
+        data.drop(columns=target, inplace=True)
+    
+        print('data @109:\n', data)
 
-def drop_low_variance(data, test_start, log, log_path, test_end, var=0.2):
-    # log information
-    log(log_path, f'Task 2: Selecting and dropping features with low variance (var < {var})...')
+        # get columns with variance bigger than the specified variance (default=0.2)
+        columns = drop_low_variance(data, test_start, log, log_path, test_end, action)
+        
+        ti['data'] = data
+        ti['columns'] = columns
+        
+        # columns = list(data.columns)
+        print('columns:', columns)
+        log(log_path, f'Selected {len(columns)} with variance={variance}: {columns}.')
 
+        # normalize data
+        train, test = data.loc[:test_start, :][columns], data.loc[test_start:, :][columns]
+        feature_scaler = MinMaxScaler().fit(train)
+        
+        # with open(f'')
+
+        train = pd.DataFrame(feature_scaler.transform(train), index=train.index, columns=train.columns)
+        test = pd.DataFrame(feature_scaler.transform(test), index=test.index, columns=test.columns)
+
+        # final log
+        log(log_path, f'Task 2: Completed. Returning data, columns, and TargetFeature class instance.')
+
+        # save current state in a pickle
+        pickle_loc = f'{results_folder}/pickles'
+        pickle_file = f'{pickle_loc}/results_variance={variance}{message}'
+
+        # create a folder to store results
+        if not os.path.exists(pickle_loc): os.mkdir(pickle_loc)
+
+        # store results
+        with open(pickle_file, 'wb') as fout:
+            pickle.dump({'data': data, 'columns': columns, 'target_feature': target_feature,
+                        'test_end': test_end, 'train': train, 'test': test, 'feature_scaler': feature_scaler},
+                        fout, pickle.HIGHEST_PROTOCOL)
+
+        return pickle_file
+
+
+def get_columns(columns_selection, model):
+    if columns_selection == 'xgb':
+        scores = model.get_score(importance_type='gain')
+        temp_df = pd.DataFrame({'columns': scores.keys(), 'values': scores.values()})
+        return temp_df[temp_df['values'] > 30]['columns'].to_list()
+
+
+def drop_low_variance(data, test_start, log, log_path, test_end, results_folder, action='all_columns', var=None):
     # remove rows after test start
     data = data[(data.index > '2017-03-21') & (data.index < test_start)]
-
-    # check the length of prediction dates
-    if len(data[(data.index >= test_start) & (data.index < test_end)]) < 100:
-        return data.columns[data.var() > var]
+    
+    if action == 'feature_eng' and var is not None:
+        # check the length of prediction dates
+        if len(data[(data.index >= test_start) & (data.index < test_end)]) < 100:
+            return data.columns[data.var() > var]
+    
+    if action == 'all_columns':
+        return data.columns
+    
+    if action == 'before22':
+        return data.loc['2022-01-01':, (data.mean() > 0)].columns
+    
+    if action == 'before21':
+        return data.loc['2021-01-01':, (data.mean() > 0)].columns
+    
+    if action == 'xgb':
+        model, train, test, scaler, target_feature = train_model(data.copy(), test_start=test_start, test_end=test_end, path=results_folder)
+        columns = get_columns(action, model)
+        columns = [x for x in columns if not x.startswith('rolling')]
+        columns += 'rolling_target5'
+        columns.remove('F380 M2/M3')
+        return columns
 
     return data[['_rgp_01_sz_3', '_rgp_02_sz_3', '_rgp_03_sz_3', '_rgp_04_sz_3', '_rgp_05_sz_3',
                  'BPSG', 'COASTAL', 'GUNVORSG', 'HL', 'MERCURIASG', 'P66SG', 'PETROCHINA',
                  'SIETCO', 'TOTALSG', 'TRAFI', 'VITOLSG']].columns
 
+
+def train_model(data, test_start, test_end=None, target_col='F380 M2/M3', model_suffix='full', columns=None, final_refit=True, path=None):
+    if columns is None and model_suffix == 'full':
+        columns = [x for x in data.columns if x != target_col]
+    elif columns is None and model_suffix != 'full':
+        raise ValueError('Cannot train a subset of columns without specifying them! Please pass the columns ')
+    
+    # set the model name
+    today_date = str(datetime.now())[:10]
+    model_name = f'experiments/models/model-{model_suffix}-{today_date}-len{len(columns)}.model'
+    
+    # create a target feature class
+    target_feature = TargetFeature(path, data, test_start, test_end)
+    target_feature()
+    
+    # drop target column
+    data.drop(columns=[target_col], inplace=True)
+    
+    # split to train/test
+    train = data[data.index < test_start]
+    
+    if test_end:
+        test = data[(data.index >= test_start) & (data.index < test_end)]
+    else:
+        test = data[data.index < test_end]
+        
+    # initiate normalization 
+    scaler = MinMaxScaler()
+    scaler.fit(train)
+    
+    # normalize data
+    train = pd.DataFrame(scaler.transform(train), index=train.index, columns=train.columns)
+    test = pd.DataFrame(scaler.transform(test), index=test.index, columns=train.columns)
+    
+    # get names for target_feature columns
+    rolling, target = 'actual_feature', 'actual_target'
+    
+    # set parameters
+    params = {'process_type': 'default', 'refresh_leaf': True, 'min_child_weight': 7,
+              'subsample': 1, 'colsample_bytree': 0.5, 'eta': 0.03}
+    
+    for idx in range(300):
+        train_temp, valid_temp = model.iterate(train, idx, low=False)
+        
+        if len(valid_temp) < 10:
+            break
+        
+        # get rolling and target columns
+        train_temp[[target_col, 'rolling_target5']] = \
+            target_feature.get_target_feature(end_date=train_temp.index.max(), start_date=train_temp.index.min(),
+                                              include_past=True)[[target, rolling]].values
+        valid_temp[[target_col, 'rolling_target5']] = \
+            target_feature.get_target_feature(end_date=valid_temp.index.max(), start_date=valid_temp.index.min(),
+                                              include_past=True)[[target, rolling]].values
+            
+        train_temp.replace([np.inf, -np.inf], np.nan, inplace=True)
+        valid_temp.replace([np.inf, -np.inf], np.nan, inplace=True)
+        train_temp.dropna(inplace=True)
+        valid_temp.dropna(inplace=True)
+        
+        # normalize rolling
+        train_temp['rolling_target5'] = target_feature.scaler.transform(train_temp[['rolling_target5']])
+        valid_temp['rolling_target5'] = target_feature.scaler.transform(valid_temp[['rolling_target5']])
+
+        train_dm = xgb.DMatrix(train_temp.drop(columns=target_col), label=train_temp[target_col])
+        valid_dm = xgb.DMatrix(valid_temp.drop(columns=target_col), label=valid_temp[target_col])
+
+        if idx == 0:
+            model = xgb.train(params, train_dm, 100, evals=[(valid_dm, 'valid')],
+                              maximize=True, early_stopping_rounds=10, custom_metric=model.custom_pnl_10)
+        else:
+            model = xgb.train(params, train_dm, 100, evals=[(valid_dm, 'valid')],
+                              maximize=True, early_stopping_rounds=10,
+                              xgb_model=model_name, custom_metric=model.custom_pnl_10)
+
+        model.save_model(model_name)
+    
+    if final_refit:
+        full_train = train.copy()
+        full_train[[target_col, 'rolling_target5']] = target_feature.get_target_feature(end_date=train.index.max(),
+                                                                                        include_past=True)[[target, rolling]].values
+        full_train.replace([np.inf, -np.inf], np.nan, inplace=True)
+        full_train.dropna(inplace=True)
+
+        # normalize data
+        full_train['rolling_target5'] = target_feature.scaler.transform(full_train[['rolling_target5']])
+
+        train_dm = xgb.DMatrix(full_train.drop(columns=target_col), label=full_train[target_col])
+
+        model = xgb.train(params, train_dm, evals=[(train_dm, 'train')],
+                          maximize=True, early_stopping_rounds=10,
+                          xgb_model=model_name, custom_metric=model.custom_pnl_10)
+
+        model.save_model(model_name)
+
+    return model, train, test, scaler, target_feature
 
 
 def _train_ridge(today, z_values=[10**4,  10**5, 10**6, 10**7, 10**8], ti=None):
@@ -293,41 +413,9 @@ def _train_ridge(today, z_values=[10**4,  10**5, 10**6, 10**7, 10**8], ti=None):
             
     for z in z_values:
         train(z, features_filtered.copy(), target.copy(), test_start=test_start)
-        
-    
-    # train, test = features_filtered[features_filtered.index < test_start], features_filtered[(features_filtered.index >= test_start) & (features_filtered.index <= test_end)]
-    
-    # results_df = pd.DataFrame(columns=['pricing_date', 'preds', 'target', 'forecast_date'])
-    
-    # # scaler = MinMaxScaler().fit(train)
-    # # y_scaler = MinMaxScaler().fit(pd.DataFrame(y[y.index < test.index.min()]))
-    
-    # for z_val in z:
-    #     for date in test.index.tolist():
-    #         date = str(date)[:10]
-            
-    #         full_history = features_filtered.copy()
-    #         X_train = full_history[full_history.index < date]
-    #         y_train = y[y.index < date]
-            
-    #         X_test, y_test = full_history[full_history.index >= date], y[y.index >= date]
-            
-    #         beta = Ridge(alpha=z_val, solver='svd', fit_intercept=False).fit(X_train, y_train).coef_
-            
-    #         forecast = X_test @ beta
-            
-    #         results_df = pd.concat([results_df, pd.DataFrame({
-    #             'pricing_date': [date],
-    #             'preds': forecast[0],
-    #             'target': y_test,
-    #         })], ignore_index=True)
-                        
-    #     results_df.to_csv(os.path.join(save_path, f'tsfresh_virtue_z={z_val}.csv'))
-    #     model.show_plot(results_df, os.path.join(save_path, f'tsfresh_virtue_z={z_val}.png'))
 
 
-
-def _pretrain_model(today, log, ti):
+def _pretrain_model(today, log, model_name=None, use_rolling=True, retrain_every=None, ti=None):
     log_path, save_path, target = ti['log_path'], ti['save_path'], ti['target_col']
     train_start, train_end, test_start, test_end = ti['train_start'], ti['train_end'], ti['test_start'], ti['test_end']
     
@@ -337,7 +425,7 @@ def _pretrain_model(today, log, ti):
     data_file = 'data/data_' + today + '.csv'
     results_folder, variance = save_path, 0.2
     
-    print('Data file:',data_file)
+    print('Data file:', data_file)
 
     if os.path.exists(data_file):
         results = pd.read_csv(data_file)
@@ -347,8 +435,6 @@ def _pretrain_model(today, log, ti):
         except TypeError:
             log(log_path, 'No data was pushed!', 'CRITICAL')
             raise TypeError('No data was created!')
-    
-    print('results:', results)
 
     # load pickle results
     data_file = f'{results_folder}/pickles/results_variance={variance}'
@@ -373,18 +459,20 @@ def _pretrain_model(today, log, ti):
 
     # create model name
     log(log_path, 'Task 3: Creating a model name...')
-    model_name = create_model_name(results_folder, variance, len(columns), train_end)
-    log(log_path, f'Task 3: Created a model name - {model_name}.')
+    
+    print(use_rolling is True and 'rolling_target5' not in columns)
+    
+    if model_name is None or (use_rolling is True and 'rolling_target5' not in columns):
+        model_name = create_model_name(results_folder, variance, len(columns) + 1, train_end)
+        ti['model_name'] = model_name
+        log(log_path, f'Task 3: Created a model name - {model_name}.')
 
     # pretrain model
     log(log_path, 'Task 3: Deciding whether to pretrain the model from scratch or load existing model.')
-    
-    print('ti keys:', ti.keys())
 
-    if 'test_end' not in ti.keys():
-        xgb_model = model.pretrain_model(model_name, target_feature, results_folder=results_folder, variance=variance, ti=ti)
-    else:
-        xgb_model = model.pretrain_model(model_name, target_feature, results_folder=results_folder, variance=variance, ti=ti)
+
+    xgb_model = model.pretrain_model(model_name, target_feature, use_rolling=use_rolling, results_folder=results_folder, 
+                                    variance=variance, ti=ti, retrain_every=retrain_every)
 
     # save current state in a pickle
     pickle_loc = f'{results_folder}/pickles'
@@ -396,7 +484,7 @@ def _pretrain_model(today, log, ti):
     return pickle_file
 
 
-def _get_predictions(today, log, ti):
+def _get_predictions(today, log, model_name, use_rolling=False, ti=None, retrain_every=None):
     log_path, save_path, target = ti['log_path'], ti['save_path'], ti['target_col']
     train_start, train_end, test_start, test_end = ti['train_start'], ti['train_end'], ti['test_start'], ti['test_end']
     
@@ -412,13 +500,22 @@ def _get_predictions(today, log, ti):
     data, columns, target_feature = results['data'], results['columns'], results['target_feature']
 
     log(log_path, 'Task 4: loading pretrained model...')
-    xgb_model = pickle.load(open(f'{results_folder}/pickles/model_variance={variance}', 'rb'))['model']
+    
+    if model_name is None:
+        xgb_model = pickle.load(open(f'{results_folder}/pickles/model_variance={variance}', 'rb'))['model']
+        model_name = ti['model_name']
+    else:
+        print(model_name)
+        xgb_model = xgb.Booster()
+        xgb_model.load_model(model_name)
+        
     log(log_path, 'Task 4: loaded model')
 
     log(log_path, 'Task 4: getting predictions...')
 
     results = model.get_predictions(data, columns, target_feature, xgb_model, results_folder, variance,
-                                    train_start, train_end, test_start, test_end, log, log_path)
+                                    train_start, train_end, test_start, test_end, log, log_path, use_rolling=use_rolling, 
+                                    retrain_every=retrain_every, model_name=model_name, ti=ti)
 
     # save current state in a pickle
     pickle_loc = f'{results_folder}/pickles'
@@ -440,9 +537,7 @@ def create_model_name(results_folder, variance, col_len, train_end):
     if not os.path.exists(folder_path): os.mkdir(folder_path)
     if not os.path.exists(model_path): os.mkdir(model_path)
 
-    model_date = train_end[:4]
-
-    model_name = f'train-until-{model_date}_variance={variance}_col_length={col_len}.model'
+    model_name = f'train-until-{train_end}_col_length={col_len}.model'
     return os.path.join(model_path, model_name)
 
 
@@ -603,34 +698,38 @@ if __name__ == '__main__':
     # print('Sys path:', sys.path)
     
     date_params = {
-        # 'train_start': '2017-03-21',
-        # 'train_end': '2023-01-01',
-        # 'test_start': '2023-01-01',
-        # 'test_end': '2023-03-01'
-
         'train_start': '2017-03-21',
-        'train_end': str(datetime.today())[:10],
-        'test_start': str(datetime.today())[:10],
-        'test_end': str(datetime.today() + BDay(10))[:10],
+        'train_end': '2023-01-01',
+        'test_start': '2023-01-01',
+        'test_end': '2023-12-31'
+
+        # 'train_start': '2017-03-21',
+        # 'train_end': str(datetime.today())[:10],
+        # 'test_start': str(datetime.today())[:10],
+        # 'test_end': str(datetime.today() + BDay(10))[:10],
     }
+    
+    # model_name = 'experiments/models/train_without_ma_drop_after2021.model'
+    use_rolling, retrain_every = True, None
     
     ds = str(datetime.today())[:10]
     
     ti = _setup_experiment(ds, 'F380 M2/M3', _log, date_params)
+    ti['action'] = 'all_columns'
     
     check_data = _check_data(ds, _log, ti)
     
     # ================================== XGBOOST IMPLEMENTATION ==================================
     
-    # prepare_data = _prepare_data(ds, _log, data_path=check_data, model_type='xgboost', ti=ti)
+    prepare_data = _prepare_data(ds, _log, data_path=check_data, model_type='xgboost', ti=ti, action='xgb')
     
-    # pretrain_model = _pretrain_model(ds, _log, ti=ti)
+    pretrain_model = _pretrain_model(ds, _log, model_name=None, use_rolling=use_rolling, ti=ti, retrain_every=retrain_every)
     
-    # get_predictions = _get_predictions(ds, _log, ti=ti)
+    get_predictions = _get_predictions(ds, _log, model_name=None, use_rolling=use_rolling, ti=ti, retrain_every=retrain_every)
     
     
     # ================================== VIRTUE IMPLEMENTATION ==================================
     # virtue_data = _prepare_data(ds, _log, data_path=check_data, model_type='virtue', ti=ti)
     # print(virtue_data)
     
-    get_predictions = _train_ridge(ds, ti=ti)
+    # get_predictions = _train_ridge(ds, ti=ti)

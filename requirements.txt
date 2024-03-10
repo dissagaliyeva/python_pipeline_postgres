@@ -10,3 +10,4 @@ graphviz
 spgci
 kaleido
 openpyxl
+jupyter_bokeh==2.0.0

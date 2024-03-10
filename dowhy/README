@@ -1,0 +1,7 @@
+The normal download of the R package crashes the notebooks! In order to overcome this:
+
+1. remove all R installations
+2. open up current conda environment  
+3. run `conda install conda-forge::r-base`
+4. get the path to R in the envs folder (inside conda env)
+5. run `import rpy2.robjects as robjects`
