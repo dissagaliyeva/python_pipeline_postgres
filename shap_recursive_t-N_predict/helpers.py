@@ -24,14 +24,14 @@ sns.set()
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from feature_engine.creation import CyclicalFeatures
-from feature_engine.datetime import DatetimeFeatures
-from feature_engine.imputation import DropMissingData
-from feature_engine.selection import DropFeatures
-from feature_engine.timeseries.forecasting import (
-    LagFeatures,
-    WindowFeatures,
-)
+# from feature_engine.creation import CyclicalFeatures
+# from feature_engine.datetime import DatetimeFeatures
+# from feature_engine.imputation import DropMissingData
+# from feature_engine.selection import DropFeatures
+# from feature_engine.timeseries.forecasting import (
+#     LagFeatures,
+#     WindowFeatures,
+# )
 
 from sklearn.linear_model import Lasso
 from sklearn.metrics import mean_squared_error
